@@ -1,4 +1,4 @@
-# 持续更新（v0.2）
+# 持续更新（v0.3）
 
 此功能分为两层：助手读取新增收藏并生成批次 JSON；`sync_library.py` 负责可靠合并与网页版本管理。定时任务负责启动助手，不是脚本自带后台抓取。当前版本化同步使用符号链接，适用于 macOS/Linux；Windows 尚未验证，仍可使用一次性构建器。
 
@@ -20,13 +20,13 @@ python3 -m http.server <port> --bind 127.0.0.1 --directory <persistent-library-d
 - 帖子按规范化 URL 去重，X/Twitter 的 status 数字ID视为同一来源。其他站点保留有意义的查询参数，仅移除锚点和常见追踪参数。
 - 提示词默认以来源帖子、kind和title确定身份；可提供稳定字符串 `key` 以支持改标题。资源默认以 `source` URL 确定身份，也可提供 `key`。同一来源多个独立 Skill 应指定不同key；key不可改用于无关内容。
 - ID重映射后保留旧记录和引用，新批次中没出现的条目不删除。没有变化不生成重复版本。
-- 可选帖子字段 `read_state` 为 `unavailable/partial/complete`，默认partial。低完成度输入不覆盖更完整帖子。`complete`仅代表已约定阅读范围完成；具体媒体/外链缺口仍写在status。同等级重新整理会更新正文；助手必须核对事实，不以新的失败页面替换成功内容。
+- 新批次必须明确填写帖子字段 `read_state` 为 `unavailable/partial/complete`。兼容旧数据时按partial处理；未提供状态的新批次不得改写已有正文。读取失败或低完成度输入不覆盖更完整帖子，但仍合并新提示词与资源关联。`complete`仅代表已约定阅读范围完成；具体媒体/外链缺口仍写在status。同等级重新整理会更新正文；助手必须核对事实，不以新的失败页面替换成功内容。
 - `user_note`、`user_tags` 不被新批次覆盖。需要更改笔记时，在知识库根目录 `notes.json` 中按规范化来源键写入文本；X使用 `x:status:数字ID`。然后运行同步使笔记出现在新网页。清空笔记用空字符串。当前不提供网页内笔记编辑器。
 - 路径相同但内容不同的两个资源会拒绝合并，改用不同相对路径；保留旧资源版本，避免同名文件误覆盖。
 
 ## 状态与恢复
 
-`current/library.json` 是已发布数据；`versions/` 留存全部历史；`current/更新记录.json` 记录变化；`notes.json`独立保存用户笔记。新版本完成之前不切换current。构建失败时保留旧入口。有`.sync-lock`时拒绝同时运行；异常退出后先确认没有进程在执行，才移除遗留锁。不要自动删除历史版本；长期使用会占用更多磁盘。
+`current/library.json` 是已发布数据；`versions/` 留存全部历史；`current/更新记录.json` 记录变化；`notes.json`独立保存用户笔记。新版本完成之前不切换current。构建失败时保留旧入口。有`.sync-lock`时拒绝同时运行；异常退出后先确认没有进程在执行，才移除遗留锁。相同资源通过硬链接复用磁盘空间（不支持时回退复制）；旧版本继续保留。版本目录属于不可变快照，禁止原地修改资源文件，否则会影响共享该文件的版本。修改资源须提交新批次。已有历史目录不自动转换或删除。
 
 回退已知版本（保留notes.json）：
 
@@ -52,3 +52,25 @@ python3 <skill-dir>/scripts/sync_library.py --library <library> --rollback <vers
 > 使用 bookmarks-to-local-web 对用户指定账号的收藏进行增量归档。读取已确认的知识库路径、current/library.json和collection-state.json，只整理新增与需补读的资料。使用sync_library.py合并，验证固定阅读入口，保留笔记与历史，失败不删除旧内容。账号或浏览器不可用时明确记录阻塞，不把没读到视为没有新增。无变化静默，仅有实际更新、新失败或需用户操作时通知。不要发布个人资料或安装收藏内的第三方代码。
 
 需要本机文件的任务要求电脑开机且桌面应用运行；平台登录和浏览器工具也需可用。参考[官方定时任务说明](https://learn.chatgpt.com/docs/automations?surface=app)。计划已创建与首次无人值守同步成功是不同验收结果。
+
+## 采集清单与恢复（v0.3）
+
+滚动时逐屏记录实际出现的收藏URL到工作目录的文本文件，每行一个URL；先记录发现项，再深读。避免大幅跳跃滚动造成虚拟列表漏项。每批开始及同步成功后执行：
+
+```bash
+python3 <skill-dir>/scripts/collection_inventory.py --library <library> --account <已核对账号> --urls <observed-urls.txt>
+```
+
+该清单区分 discovered（已发现未归档）、archived（已入库，具体阅读范围以条目为准）、failed（明确读取失败）。失败同步不应被记为已归档。首次建库之前把URL文件保留在工作目录，成功建库后再导入。账号不符拒绝合并。
+
+`all_discovered_archived`仅表示已经发现的清单处理完毕，**不代表平台全部收藏**。脚本不独立确认平台总数，`platform_total_verified`始终为false。确实看到末尾时可用`--end-evidence`记录页面证据，并在collection-state另记核对依据；不能用连续无新增当末尾证据。恢复时从上次锚点前重叠检查。
+
+视频是否转写按用户范围；选择仅归档文字时保留视频帖正文与来源，不将未转写列为失败或待办。
+
+## 简单启动
+
+```bash
+python3 <skill-dir>/scripts/open_library.py --library <library>
+```
+
+检查阅读页并启动仅监听本机的服务，自动打开浏览器；窗口关闭后需重新运行。端口占用会提示换端口，绝不结束其他服务。可用`--port 8770`或`--no-browser`。此工具不配置开机启动，也不负责平台登录。

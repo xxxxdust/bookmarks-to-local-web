@@ -45,6 +45,7 @@ def validate(d, root):
         for key in ('title', 'author', 'category', 'url', 'lead', 'action', 'resources', 'status'):
             require(isinstance(p[key], str), 'Invalid post field: ' + key)
         require(isinstance(p.get('user_note',''),str), 'Invalid user_note')
+        require(p.get('read_state','partial') in ('unavailable','partial','complete'), 'Invalid read_state')
         web_url(p['url']); urls.append(p['url'])
         require(isinstance(p['points'], list) and all(isinstance(x,str) for x in p['points']), 'Invalid points')
         for key in ('prompts', 'skills'):
@@ -70,6 +71,11 @@ def validate(d, root):
         require(p.startswith('resources/'), 'Store source files under resources/: ' + p)
         local_file(root, p)
     return paths
+
+
+def renderer_hash():
+    base = Path(__file__).resolve()
+    return hashlib.sha256(base.read_bytes() + (base.parent.parent/'assets/reader.html').read_bytes()).hexdigest()
 
 
 def render(d, root, out):
@@ -105,7 +111,7 @@ def render(d, root, out):
         page = page.replace('__DATA__', json.dumps(d,ensure_ascii=False).replace('<','\\u003c').replace('>','\\u003e').replace('&','\\u0026'))
         (tmp/'阅读页.html').write_text(page,encoding='utf-8')
         (tmp/'library.json').write_text(json.dumps(d,ensure_ascii=False,indent=2),encoding='utf-8')
-        (tmp/'核验记录.json').write_text(json.dumps({'counts':{k:len(d[k]) for k in ('posts','prompts','skills')},'resources':manifest,'validation':'schema, source references, local paths and copy hashes only; browser verification separate'},ensure_ascii=False,indent=2),encoding='utf-8')
+        (tmp/'核验记录.json').write_text(json.dumps({'renderer_hash':renderer_hash(),'counts':{k:len(d[k]) for k in ('posts','prompts','skills')},'resources':manifest,'validation':'schema, source references, local paths and copy hashes only; browser verification separate'},ensure_ascii=False,indent=2),encoding='utf-8')
         tmp.rename(out)
     except Exception:
         shutil.rmtree(tmp)

@@ -26,7 +26,8 @@
       "prompts": [
         1
       ],
-      "skills": []
+      "skills": [],
+      "read_state": "complete"
     }
   ],
   "prompts": [

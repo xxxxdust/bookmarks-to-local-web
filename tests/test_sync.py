@@ -68,6 +68,44 @@ class SyncTests(unittest.TestCase):
     def test_concurrent_guard(self):
         self.run_sync();(self.library/'.sync-lock').mkdir()
         with self.assertRaises(ValueError):self.run_sync()
+    def test_missing_state_does_not_replace_summary(self):
+        self.run_sync();d=copy.deepcopy(self.data)
+        d['posts'][0].pop('read_state',None);d['posts'][0]['lead']='failed'
+        self.run_sync(d)
+        self.assertEqual(self.read()['posts'][0]['lead'],self.data['posts'][0]['lead'])
+    def test_lower_state_keeps_new_prompt_relation(self):
+        self.run_sync();d=copy.deepcopy(self.data)
+        d['posts'][0]['read_state']='partial';d['prompts'][0]['title']='Additional template'
+        self.run_sync(d);out=self.read()
+        self.assertEqual(out['posts'][0]['prompts'],[1,2])
+        self.assertEqual(out['posts'][0]['lead'],self.data['posts'][0]['lead'])
+    def test_unchanged_resource_shared_between_versions(self):
+        f=self.src/'resources/a.txt';f.parent.mkdir();f.write_text('original')
+        self.data['skills']=[{'id':1,'name':'test','repository':'test','use':'test','source':'https://example.com/tool','file':'resources/a.txt','license':'test','commit':'test','sources':[1],'files':[]}]
+        v=self.run_sync()['version'];d=copy.deepcopy(self.data);d['posts'][0]['lead']='new summary'
+        self.run_sync(d)
+        prior=self.library/'versions'/v/'resources/a.txt'
+        current=active(self.library)/'resources/a.txt'
+        self.assertEqual(prior.stat().st_ino,current.stat().st_ino)
+        self.assertNotEqual(f.stat().st_ino,current.stat().st_ino)
+        f.write_text('changed input');self.assertEqual(current.read_text(),'original')
+    def test_inventory_tracks_missing_and_account(self):
+        from collection_inventory import reconcile
+        self.run_sync()
+        d=reconcile(self.library,['https://example.com/missing'],'demo')
+        self.assertEqual(d['counts'],{'archived':1,'discovered':1,'failed':0})
+        self.assertFalse(d['platform_total_verified'])
+        with self.assertRaises(ValueError):reconcile(self.library,account='another')
+        self.assertFalse((self.library/'.sync-lock').exists())
+    def test_launcher_rejects_missing_page_and_busy_port(self):
+        from open_library import make_server
+        with self.assertRaises(ValueError):make_server(self.root,0)
+        self.run_sync()
+        server=make_server(self.library,0)
+        try:
+            self.assertEqual(server.server_address[0],'127.0.0.1')
+            with self.assertRaises(OSError):make_server(self.library,server.server_port)
+        finally:server.server_close()
     def test_refuse_existing_unmanaged_directory(self):
         self.library.mkdir();(self.library/'important.txt').write_text('keep')
         with self.assertRaises(ValueError):self.run_sync()

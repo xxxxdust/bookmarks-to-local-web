@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
-from build_library import validate, render, require, local_file, web_url
+from build_library import validate, render, require, local_file, web_url, renderer_hash
 
 
 def source_key(url):
@@ -78,8 +78,13 @@ def merge(old, batch, notes):
                 for rel in ('prompts','skills'):
                     p[rel] = sorted(set((prev or {}).get(rel,[]) + [mapping[rel][i] for i in p[rel]]))
                 require(p.get('read_state','partial') in rank, 'Invalid read_state')
-                if prev and rank[p.get('read_state','partial')] < rank[prev.get('read_state','partial')]:
+                # Missing states from legacy clients must never authorize a rewrite.
+                relations = {rel: p[rel] for rel in ('prompts', 'skills')}
+                if prev and (not entry.get('read_state') or
+                             rank[p['read_state']] < rank[prev.get('read_state','partial')] or
+                             p['read_state'] == 'unavailable'):
                     p = copy.deepcopy(prev)
+                p.update(relations)
                 if prev:
                     p['url'] = prev['url']
                     for field in ('user_note','user_tags'):
@@ -149,9 +154,12 @@ def sync(source, library):
                 if name in files: require(files[name][1]==digest,'Resource path collision; give distinct content distinct paths')
                 files[name]=(path,digest)
         old_hashes={}
+        old_renderer=None
         if previous:
-            old_hashes={x['path']:x['sha256'] for x in json.loads((previous/'核验记录.json').read_text())['resources']}
-        if previous and clean(merged)==clean(old) and old_hashes=={k:v[1] for k,v in files.items()}:
+            manifest=json.loads((previous/'核验记录.json').read_text())
+            old_hashes={x['path']:x['sha256'] for x in manifest['resources']}
+            old_renderer=manifest.get('renderer_hash')
+        if previous and old_renderer==renderer_hash() and clean(merged)==clean(old) and old_hashes=={k:v[1] for k,v in files.items()}:
             return {'changed':False,'version':previous.name,'counts':{g:len(merged[g]) for g in ('posts','prompts','skills')},'changes':stats}
         now=datetime.now(timezone.utc).isoformat(timespec='seconds')
         merged['meta']['updated_at']=now
@@ -163,6 +171,23 @@ def sync(source, library):
             version=datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')+'-'+uuid.uuid4().hex[:8]
             destination=library/'versions'/version
             render(merged,stage,destination)
+            # Share identical immutable resources across snapshots; never link input files.
+            if previous:
+                for name, (_, digest) in files.items():
+                    if old_hashes.get(name) != digest:
+                        continue
+                    prior = local_file(previous, name)
+                    if hashlib.sha256(prior.read_bytes()).hexdigest() != digest:
+                        continue
+                    dest = destination/name
+                    shared = dest.with_name(dest.name + '.share-' + uuid.uuid4().hex)
+                    try:
+                        os.link(prior, shared)
+                        os.replace(shared, dest)
+                    except OSError:
+                        pass  # Filesystems without hard links keep an independent copy.
+                    finally:
+                        if shared.exists(): shared.unlink()
         # Prepare entrypoints before publishing. current is the sole authoritative pointer.
         entry='<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=current/阅读页.html"><title>收藏知识库</title><a href="current/阅读页.html">打开最新阅读页</a>'
         for name in ('index.html','阅读页.html'):
