@@ -44,6 +44,7 @@ def validate(d, root):
     for p in d['posts']:
         for key in ('title', 'author', 'category', 'url', 'lead', 'action', 'resources', 'status'):
             require(isinstance(p[key], str), 'Invalid post field: ' + key)
+        require(isinstance(p.get('user_note',''),str), 'Invalid user_note')
         web_url(p['url']); urls.append(p['url'])
         require(isinstance(p['points'], list) and all(isinstance(x,str) for x in p['points']), 'Invalid points')
         for key in ('prompts', 'skills'):
@@ -91,6 +92,8 @@ def render(d, root, out):
         docs = {'开始阅读.md': '# ' + d['meta']['title'] + '\n\n' + d['meta']['scope'] + '\n\n' + '\n'.join('- '+x for x in d['meta']['takeaways']) + '\n\n阅读边界：' + d['meta']['limitations'], '逐篇重点.md':'# 逐篇重点\n', '提示词手册.md':'# 提示词手册\n', 'Skill索引.md':'# 原始资源\n'}
         for p in d['posts']:
             docs['逐篇重点.md'] += '\n## '+str(p['id'])+' · '+p['title']+'\n\n作者：'+p['author']+'\n\n来源：'+p['url']+'\n\n'+p['lead']+'\n\n'+'\n'.join('- '+x for x in p['points'])+'\n\n使用建议：'+p['action']+'\n\n资源情况：'+p['resources']+'\n\n阅读状态：'+p['status']+'\n'
+            if p.get('user_note'):
+                docs['逐篇重点.md'] += '\n我的笔记：' + p['user_note'] + '\n'
         for p in d['prompts']:
             docs['提示词手册.md'] += '\n## '+str(p['id'])+' · '+p['title']+'\n\n'+p['kind']+'；'+p['note']+'\n\n来源条目：'+str(p['sources'])+'\n\n'+p['body']+'\n'
         for s in d['skills']:

@@ -1,4 +1,4 @@
 interface:
   display_name: "收藏变本地知识库"
-  short_description: "深读收藏与笔记，提炼重点、提示词和原始资源，生成可搜索的本地阅读网页"
+  short_description: "深读收藏与笔记，提炼重点、提示词和原始资源，生成支持增量更新的本地阅读网页"
   default_prompt: "使用 $bookmarks-to-local-web 把我的收藏逐篇读懂，整理重点、提示词和公开 Skill，保存为本地阅读网页，并标明遗漏。"
